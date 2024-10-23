@@ -64,8 +64,36 @@ func TestDivision(t *testing.T) {
 		print(a)
 	}
 
-	if !rem.Equals(NewPolynomial([]field.FieldElement{a, zero, zero})) {
+	if !rem.Equals(NewPolynomial([]field.FieldElement{a.Negate(), zero, zero})) {
 		t.Errorf("Division failed")
 	}
 
+}
+
+func TestPolynomial_Interpolate_domain(t *testing.T) {
+	// Test the interpolation of polynomials
+
+	Field_252 := field.Field_252{}
+	// Create the field elements
+
+	zero := Field_252.Zero()
+	one := Field_252.One()
+	a := field.FieldElement{big.NewInt(2), Field_252}
+	b := field.FieldElement{big.NewInt(3), Field_252}
+	c := field.FieldElement{big.NewInt(4), Field_252}
+	d := field.FieldElement{big.NewInt(5), Field_252}
+
+	// Create the domain and codomain
+	domain := []field.FieldElement{a, b, c, d}
+	codomain := []field.FieldElement{a, b, c, d}
+
+	// Create the polynomial
+	p := NewPolynomial([]field.FieldElement{one, zero, zero, zero})
+
+	// Test the interpolation
+	// p = 0
+	p = p.Interpolate_domain(domain, codomain)
+	if !(p.Degree() == 1) {
+		t.Errorf("Interpolation failed")
+	}
 }

@@ -9,6 +9,10 @@ type Polynomial struct {
 	coefficients []field.FieldElement
 }
 
+type MultivarPolynomial struct {
+	coefficients []Polynomial
+}
+
 func NewPolynomial(coefficients []field.FieldElement) Polynomial {
 	return Polynomial{coefficients}
 }
@@ -28,18 +32,39 @@ func (p Polynomial) Degree() int {
 	return max_degree
 }
 
+func (p Polynomial) Coefficients() []field.FieldElement {
+    return p.coefficients
+}
+
 func (p Polynomial) Subtract(right Polynomial) Polynomial {
-	var result []field.FieldElement
+	return p.Add(right.Negate())
+}
+
+func (p Polynomial) Negate() Polynomial {
+	result := make([]field.FieldElement, len(p.coefficients))
 	for i := 0; i < len(p.coefficients); i++ {
-		result = append(result, p.coefficients[i].Subtract(right.coefficients[i]))
+		result[i] = p.coefficients[i].Negate()
 	}
 	return NewPolynomial(result)
 }
 
 func (p Polynomial) Add(right Polynomial) Polynomial {
-	var result []field.FieldElement
+	if p.Degree() == -1 {
+		return right
+	}
+	if right.Degree() == -1 {
+		return p
+	}
+	len_result := max(len(p.coefficients), len(right.coefficients))
+	result := make([]field.FieldElement, len_result)
+	for i := 0; i < len_result; i++ {
+		result[i] = p.coefficients[0].Field.Zero()
+	}
 	for i := 0; i < len(p.coefficients); i++ {
-		result = append(result, p.coefficients[i].Add(right.coefficients[i]))
+		result[i] = result[i].Add(p.coefficients[i])
+	}
+	for i := 0; i < len(right.coefficients); i++ {
+		result[i] = result[i].Add(right.coefficients[i])
 	}
 	return NewPolynomial(result)
 }
