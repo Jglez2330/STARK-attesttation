@@ -2,11 +2,12 @@ package reedsolomon
 
 import (
 	"bytes"
-	"encoding/binary"
+	"crypto/sha256"
 	proof "jglez2330/stark-attestation/Proof"
 	field "jglez2330/stark-attestation/field"
 	merkle "jglez2330/stark-attestation/merkle"
 	"jglez2330/stark-attestation/polynomial"
+	"math"
 	"math/big"
 )
 
@@ -14,17 +15,18 @@ type FastReedSolomonIOP struct {
 	domain_size int
 	Field       field.Field
 	omega       field.FieldElement
+    offset      field.FieldElement
     exp_fac     int
 }
 
-func NewFastReedSolomonIOP(domain_size int, field field.Field) FastReedSolomonIOP {
-	return FastReedSolomonIOP{domain_size, field}
+func NewFastReedSolomonIOP(domain_size, exp_fac, offset int, field_ field.Field) FastReedSolomonIOP {
+	return FastReedSolomonIOP{domain_size, field_, field_.Generator_subgroup_order(domain_size*exp_fac), field.FieldElement{big.NewInt(int64(offset)), field_}, exp_fac}
 }
 
-func (r FastReedSolomonIOP) Rounds() int {
+func (r *FastReedSolomonIOP) Rounds() int {
 	count := 0
 	domain := r.domain_size
-	for domain > 1 {
+	for domain > r.exp_fac {
 		domain = domain / 2
 		count++
 	}
@@ -60,44 +62,44 @@ func (r FastReedSolomonIOP) Rounds() int {
 // 	return fri_polys, fri_domains, fri_layers, fri_mk
 // }
 
-func (r FastReedSolomonIOP) next_polynomial(poly polynomial.Polynomial, alpha field.FieldElement) polynomial.Polynomial {
-
-	// To create the next polynomial we need to cut the degree by 2 and generate a new polynomial
-	odd_coefficients := make([]field.FieldElement, len(poly.Coefficients())/2)
-	even_coefficients := make([]field.FieldElement, len(poly.Coefficients())/2)
-	for i := 0; i < len(poly.Coefficients()); i++ {
-		if i%2 == 0 {
-			even_coefficients = append(even_coefficients, poly.Coefficients()[i])
-		} else {
-			odd_coefficients = append(odd_coefficients, poly.Coefficients()[i])
-		}
-	}
-	alpha_poly := polynomial.NewPolynomial([]field.FieldElement{alpha})
-	polynomial_odd := polynomial.NewPolynomial(odd_coefficients).Multiply(alpha_poly)
-	polynomial_even := polynomial.NewPolynomial(even_coefficients)
-
-	return polynomial_odd.Add(polynomial_even)
-}
-
-func (r FastReedSolomonIOP) next_domain(domain []field.FieldElement) []field.FieldElement {
-	next_domain := make([]field.FieldElement, 0)
-	two := field.FieldElement{big.NewInt(2), r.Field}
-	for i := 0; i < len(domain)/2; i++ {
-		next_domain = append(next_domain, domain[i].Exp(two))
-	}
-	return next_domain
-}
-
-func (r FastReedSolomonIOP) next_layer(poly polynomial.Polynomial, domain []field.FieldElement) []field.FieldElement {
-	return poly.Evaluate_Domain(domain)
-}
-
-func (r FastReedSolomonIOP) next_fri_layer(poly polynomial.Polynomial, domain []field.FieldElement, alpha field.FieldElement) (next_poly polynomial.Polynomial, next_domain []field.FieldElement, next_layer []field.FieldElement) {
-	next_poly = r.next_polynomial(poly, alpha)
-	next_domain = r.next_domain(domain)
-	next_layer = r.next_layer(next_poly, next_domain)
-	return next_poly, next_domain, next_layer
-}
+// func (r FastReedSolomonIOP) next_polynomial(poly polynomial.Polynomial, alpha field.FieldElement) polynomial.Polynomial {
+//
+// 	// To create the next polynomial we need to cut the degree by 2 and generate a new polynomial
+// 	odd_coefficients := make([]field.FieldElement, len(poly.Coefficients())/2)
+// 	even_coefficients := make([]field.FieldElement, len(poly.Coefficients())/2)
+// 	for i := 0; i < len(poly.Coefficients()); i++ {
+// 		if i%2 == 0 {
+// 			even_coefficients = append(even_coefficients, poly.Coefficients()[i])
+// 		} else {
+// 			odd_coefficients = append(odd_coefficients, poly.Coefficients()[i])
+// 		}
+// 	}
+// 	alpha_poly := polynomial.NewPolynomial([]field.FieldElement{alpha})
+// 	polynomial_odd := polynomial.NewPolynomial(odd_coefficients).Multiply(alpha_poly)
+// 	polynomial_even := polynomial.NewPolynomial(even_coefficients)
+//
+// 	return polynomial_odd.Add(polynomial_even)
+// }
+//
+// func (r FastReedSolomonIOP) next_domain(domain []field.FieldElement) []field.FieldElement {
+// 	next_domain := make([]field.FieldElement, 0)
+// 	two := field.FieldElement{big.NewInt(2), r.Field}
+// 	for i := 0; i < len(domain)/2; i++ {
+// 		next_domain = append(next_domain, domain[i].Exp(two))
+// 	}
+// 	return next_domain
+// }
+//
+// func (r FastReedSolomonIOP) next_layer(poly polynomial.Polynomial, domain []field.FieldElement) []field.FieldElement {
+// 	return poly.Evaluate_Domain(domain)
+// }
+//
+// func (r FastReedSolomonIOP) next_fri_layer(poly polynomial.Polynomial, domain []field.FieldElement, alpha field.FieldElement) (next_poly polynomial.Polynomial, next_domain []field.FieldElement, next_layer []field.FieldElement) {
+// 	next_poly = r.next_polynomial(poly, alpha)
+// 	next_domain = r.next_domain(domain)
+// 	next_layer = r.next_layer(next_poly, next_domain)
+// 	return next_poly, next_domain, next_layer
+// }
 
 // func (r FastReedSolomonIOP) Decommit(idx int, current_word, next_word []field.FieldElement, fs_proof proof.Fiat_Shamir_Proof) int {
 //     sib_idx := idx + (len(current_word)/2)
@@ -126,188 +128,267 @@ func (r FastReedSolomonIOP) next_fri_layer(poly polynomial.Polynomial, domain []
 //     return idx + sib_idx
 // }
 
-func (r FastReedSolomonIOP) Commit(codeword []field.FieldElement, fs_proof proof.Fiat_Shamir_Proof) [][]field.FieldElement {
-	codewords := make([][]field.FieldElement, 0)
-	offset := field.FieldElement{big.NewInt(1), r.Field}
-	omega := r.omega.Multiply(offset)
-	for i := 0; i < r.Rounds(); i++ {
+func (r *FastReedSolomonIOP) random_index(byte_array []byte, size int) uint {
+    var acc uint64
+    for i := 0; i < len(byte_array); i++ {
+        acc = uint64(math.Pow(float64(acc<<8), float64(int(byte_array[i]))))
+    }
 
-		mk := merkle.NewMerkle(codeword)
-		layer_root := mk.Root
-		fs_proof.Push(layer_root)
-		codewords = append(codewords, codeword)
-
-		alpha_raw := binary.BigEndian.Uint64(fs_proof.Prover_fiat_shamir(32))
-		alpha := field.FieldElement{big.NewInt(int64(alpha_raw)), r.Field}
-		codeword = r.split_fold(codeword, alpha, omega)
-		offset = offset.Exp(field.FieldElement{big.NewInt(2), r.Field})
-		omega = omega.Exp(field.FieldElement{big.NewInt(2), r.Field}).Multiply(offset)
-
-	}
-    fs_proof.Push(codeword)
-	codewords = append(codewords, codeword)
-
-	return codewords
-
+    return uint(acc % uint64(size))
+}
+func Contains[T comparable](s []T, e T) bool {
+    for _, v := range s {
+        if v == e {
+            return true
+        }
+    }
+    return false
 }
 
-func (r FastReedSolomonIOP) split_fold(codeword []field.FieldElement, alpha, omega field.FieldElement) (codewords []field.FieldElement) {
-	new_codeword := make([]field.FieldElement, 0)
-	two := field.FieldElement{big.NewInt(2), r.Field}
-	two_inv := two.Inverse()
-	for i := 0; i < len(codeword)/2; i += 1 {
-		// (alpha +1) * codeword[i]
-		lower_idx_num := alpha.Add(r.Field.One()).Multiply(codeword[i])
-		// omega^i
-		lower_idx_den := omega.Exp(field.FieldElement{big.NewInt(int64(i)), r.Field})
-		// (alpha + 1)*codeword[i] / omega^i
-		lower_idx := lower_idx_num.Multiply(lower_idx_den.Inverse())
-		// (1- alpha) * codeword[i + len(codeword)/2]
-		upper_idx_num := r.Field.One().Subtract(lower_idx).Multiply(codeword[len(codeword)/2+i])
-		// omega^i
-		upper_idx_den := omega.Exp(field.FieldElement{big.NewInt(int64(i)), r.Field})
-		// (1-alpha)*codeword[i + len(codeword)/2] / omega^i
-		upper_idx := upper_idx_num.Multiply(upper_idx_den.Inverse())
 
-		// (alpha + 1)*codeword[i] /2*omega^i + (1-alpha)*codeword[i + len(codeword)/2] / 2*omega^i
-		element := lower_idx.Add(upper_idx).Multiply(two_inv)
-		new_codeword = append(new_codeword, element)
-	}
-	return new_codeword
+func (r *FastReedSolomonIOP) random_indeces(seed []byte, size, reduced_size, number int) []uint {
+    indeces := make([]uint, 0)
+    reduced_indeces := make([]uint, 0)
+    count := 0
+    for i := 0; i < number; i++ {
+        s := sha256.New()
+        s.Write(seed)
+        s.Write([]byte{byte(count)})
+        index := r.random_index(s.Sum(nil), size)
+
+        reduced_index := index % uint(reduced_size)
+        count++
+        if !Contains(reduced_indeces, reduced_index) {
+            indeces = append(indeces, index)
+            reduced_indeces = append(reduced_indeces, reduced_index)
+        }
+    }
+    return indeces
+}
+
+func (r FastReedSolomonIOP) Commit(codeword []field.FieldElement, fs_proof proof.Fiat_Shamir_Proof) [][]field.FieldElement {
+    omega := r.omega
+    offset := r.offset
+    codewords := make([][]field.FieldElement, 0)
+
+    for i := 0; i < r.Rounds(); i++ {
+        mk := merkle.NewMerkle(codeword)
+        root := mk.Root
+        fs_proof.Push(root)
+
+        if i == r.Rounds() - 1 {
+            break
+        }
+
+        alpha := r.Field.Sample(fs_proof.Prover_FS())
+
+        codewords = append(codewords, codeword)
+
+        codeword = r.split_fold(codeword, alpha, omega, offset)
+
+        omega = omega.Multiply(omega)
+        offset = offset.Multiply(offset)
+    }
+
+    fs_proof.Push(codeword)
+    codewords = append(codewords, codeword)
+
+    return codewords
+}
+
+func (r FastReedSolomonIOP) split_fold(codeword []field.FieldElement, alpha, omega, offset field.FieldElement) []field.FieldElement {
+    one := field.FieldElement{big.NewInt(1), r.Field}
+    two := field.FieldElement{big.NewInt(2), r.Field}
+    two_inv := two.Inverse()
+    codewords := make([]field.FieldElement, 0)
+    for i := 0; i < len(codeword)/2; i++ {
+        even_num := one.Add(alpha)
+        omega_i := omega.Exp(field.FieldElement{big.NewInt(int64(i)), r.Field})
+        even_den  := omega_i.Multiply(offset)
+        even := even_num.Divide(even_den).Multiply(codeword[i])
+
+        odd_num := one.Subtract(alpha)
+        odd_den := omega_i.Multiply(offset)
+        odd := odd_num.Divide(odd_den).Multiply(codeword[i + len(codeword)/2])
+
+        res := even.Add(odd)
+
+        codewords = append(codewords, res.Multiply(two_inv))
+
+    }
+    return codewords
 }
 
 func (r FastReedSolomonIOP) Query(current_word, next_word []field.FieldElement, index int, fs_proof proof.Fiat_Shamir_Proof) int {
-	sib_idx := index + (len(current_word) / 2)
+    sib_index := index + len(current_word)/2
 
-	//Tell the verifier the leaves we are querying
-	fs_proof.Push(current_word[index].Value.Bytes())
-	fs_proof.Push(current_word[sib_idx].Value.Bytes())
-	fs_proof.Push(next_word[index].Value.Bytes())
+    leaf_current := current_word[index]
+    leaf_sib := current_word[sib_index]
+    leaf_next := next_word[index]
 
-	//Now we need to prove that the leaves are in the merkle tree and the path to the root
-	merkle_idx := merkle.NewMerkle(current_word)
-	path := merkle_idx.Open_path(index)
-	for i := 0; i < len(path); i++ {
-		fs_proof.Push(path[i])
-	}
-	path_sib := merkle_idx.Open_path(sib_idx)
-	for i := 0; i < len(path_sib); i++ {
-		fs_proof.Push(path_sib[i])
-	}
-	merkle_next := merkle.NewMerkle(next_word)
-	path_next := merkle_next.Open_path(index)
-	for i := 0; i < len(path_next); i++ {
-		fs_proof.Push(path_next[i])
-	}
+    fs_proof.Push(leaf_current)
+    fs_proof.Push(leaf_sib)
+    fs_proof.Push(leaf_next)
 
-	return index + sib_idx
+    mk_current := merkle.NewMerkle(current_word)
+    path_current := mk_current.Open_path(index)
+    path_sib := mk_current.Open_path(sib_index)
+    mk_next := merkle.NewMerkle(next_word)
+    path_next := mk_next.Open_path(index)
+
+    fs_proof.Push(path_current)
+    fs_proof.Push(path_sib)
+    fs_proof.Push(path_next)
+
+    return sib_index
 
 }
 
-func (r FastReedSolomonIOP) Prove(codeword []field.FieldElement, fs_proof proof.Fiat_Shamir_Proof) []int {
+func (r FastReedSolomonIOP) Prove(codeword []field.FieldElement, fs_proof proof.Fiat_Shamir_Proof) []uint {
+    codewords := r.Commit(codeword, fs_proof)
 
-	codewords := r.Commit(codeword, fs_proof)
-	indeces := make([]int, 0)
-	for i := 0; i < len(codewords); i++ {
-		//indeces = append(indeces, r.random_index(fs_proof))
-        indeces = append(indeces, 1)
-	}
+    top_indeces := r.random_indeces(fs_proof.Prover_FS(), len(codewords[0])/2, len(codewords[len(codewords)-1]), 10)
+    indeces := make([]uint, 0)
+    for i := 0; i < len(top_indeces); i++ {
+        indeces = append(indeces, top_indeces[i])
+    }
 
-	//Query phase
+    for i := 0; i < len(codewords)-1; i++ {
+        //fold
+        for j := 0; j < len(indeces); j++ {
+            indeces[j] = uint(indeces[j] % uint(len(codewords[i])/2))
+        }
+        r.Query(codewords[i], codewords[i+1], int(indeces[0]), fs_proof)
+    }
 
-	new_indeces := indeces
-	for i := 0; i < len(codewords)-1; i++ {
-		for j := 0; j < len(codewords[i]); j++ {
-			new_indeces[j] = indeces[j] % len(codewords[i]) / 2
-		}
-		r.Query(codewords[i], codewords[i+1], new_indeces[0], fs_proof)
-	}
-	return indeces
+    return top_indeces
+
+
 }
 
-func (r FastReedSolomonIOP) random_index(fs_proof proof.Fiat_Shamir_Proof) int {
-	idx_raw := binary.BigEndian.Uint64(fs_proof.Prover_fiat_shamir(32))
-	idx := int(idx_raw)
-	return idx
+func get_root(fs_proof proof.Fiat_Shamir_Proof) []byte {
+    root_any := fs_proof.Pop().([]any)
+
+    root := make([]byte, 0)
+    for i := 0; i < len(root_any); i++ {
+        root = append(root, root_any[i].(byte))
+    
+    }
+
+    return root
+    
 }
 
-func (r FastReedSolomonIOP) random_index_ver(fs_proof proof.Fiat_Shamir_Proof) int {
-	idx_raw := binary.BigEndian.Uint64(fs_proof.Verifier_fiat_shamir(32))
-	idx := int(idx_raw) 
-	return idx
+func get_codeword(fs_proof proof.Fiat_Shamir_Proof) []field.FieldElement {
+    codeword_any := fs_proof.Pop().([]any)
+    code := make([]field.FieldElement, 0)
+    for i := 0; i < len(codeword_any); i++ {
+        code = append(code, codeword_any[i].(field.FieldElement))
+    }
+
+    return code
 }
-func (r FastReedSolomonIOP) Verify(fs_proof proof.Fiat_Shamir_Proof) bool {
-	offset := field.FieldElement{big.NewInt(1), r.Field}
-	omega := r.omega.Multiply(offset)
 
-	//First we need to get the roots and alphas used on the commitment phase
-	roots := make([][]byte, 0)
-	alphas := make([]int, 0)
+func get_leaf(fs_proof proof.Fiat_Shamir_Proof) field.FieldElement {
+    leaf_any := fs_proof.Pop().(any)
+    leaf := leaf_any.(field.FieldElement)
+    return leaf
+}
 
-	for i := 0; i < r.Rounds(); i++ {
-		roots = append(roots, fs_proof.Pop().([]byte))
+func get_path(fs_proof proof.Fiat_Shamir_Proof) [][]byte {
+    path_any := fs_proof.Pop().([]any)
+    path := make([][]byte, 0)
+    for i := 0; i < len(path_any); i++ {
+        path = append(path, path_any[i].([]byte))
+    }
+    return path
+}
 
-        alphas = append(alphas, r.random_index_ver(fs_proof))
-	}
 
-    //Extract the last codeword
-    last_codeword := fs_proof.Pop().([]field.FieldElement)
+func (r *FastReedSolomonIOP) Verify(fs_proof proof.Fiat_Shamir_Proof) bool {
+    omega := r.omega
+    offset := r.offset
 
-    //Convwer into field elements
+    roots := make([][]byte, 0)
+    alphas := make([]field.FieldElement, 0)
+    for i := 0; i < r.Rounds(); i++ {
+        roots = append(roots, get_root(fs_proof))
+        alphas = append(alphas, r.Field.Sample(fs_proof.Verifier_FS()))
+    }
+
+    last_codeword := get_codeword(fs_proof)
+
     mk := merkle.NewMerkle(last_codeword)
-
-    //Check if last code word is correct
-    if bytes.Compare(roots[len(roots)-1], mk.Root) != 0{
+    if bytes.Compare(mk.Root, get_root(fs_proof)) != 0 {
         return false
     }
 
-    //Now we need to verify that the codewords belong to a low degree polynomial
     degree := len(last_codeword)/r.exp_fac - 1
 
+    last_omega := omega
+    last_offset := offset
+
+    for i := 0; i < r.Rounds()-1; i++ {
+        last_omega = last_omega.Multiply(last_omega)
+        last_offset = last_offset.Multiply(last_offset)
+    }
+
     last_domain := make([]field.FieldElement, 0)
-    h := r.Field.Generator_subgroup_order(len(last_codeword)) 
     for i := 0; i < len(last_codeword); i++ {
-        h_i := h.Exp(field.FieldElement{big.NewInt(int64(i)),r.Field})
-        last_domain = append(last_domain, h_i)
+        omega_i := last_omega.Exp(field.FieldElement{big.NewInt(int64(i)), r.Field})
+        last_domain = append(last_domain, omega_i.Multiply(last_offset))
     }
 
     poly_new := polynomial.Polynomial{}
     poly := poly_new.Interpolate_domain(last_domain, last_codeword)
 
-    if poly.Degree() > degree{
+    if degree > poly.Degree() {
         return false
     }
 
-    for i := 0; i < r.Rounds()-1; i++ {
-        indeces := make([]int, 0) 
-        for j := 0; j < r.domain_size; j++ {
-            //indeces = append(indeces, r.random_index_ver(fs_proof))
-            indeces = append(indeces, 1)
+    top_indeces := r.random_indeces(fs_proof.Verifier_FS(),r.domain_size/2, r.domain_size>>(r.Rounds()-1), 10)
+
+    for i := 0; i < r.Rounds()-1;i++{
+        c_indeces := make([]uint, 0)
+        for j := 0; j < len(top_indeces); j++ {
+            c_indeces = append(c_indeces, top_indeces[j] % uint(r.domain_size>>(i+1)))
         }
 
-        //Query phase
-        path_next_word := fs_proof.Pop().([]field.FieldElement)
-        Merkle_next := merkle.NewMerkle(path_next_word)
-        if !Merkle_next.Verify(roots[i], indeces[0], last_codeword[indeces[0]], path_next_word){
+        a_idx := c_indeces
+        b_idx := make([]uint, 0)
+        for j := 0; j < len(a_idx); j++ {
+            b_idx = append(b_idx, a_idx[j] + uint(r.domain_size>>(i+1)))
+        }
+
+        a_leaf := get_leaf(fs_proof)
+        b_leaf := get_leaf(fs_proof)
+        c_leaf := get_leaf(fs_proof)
+
+        a_path := get_path(fs_proof)
+        b_path := get_path(fs_proof)
+        c_path := get_path(fs_proof)
+
+        mk := merkle.Merkle{}
+
+        if mk.Verify(roots[i], int(a_idx[i]), a_leaf, a_path)  {
             return false
         }
-        path_sib_word := fs_proof.Pop().([]field.FieldElement)
-        Merkle_sib := merkle.NewMerkle(path_sib_word)
-        if !Merkle_sib.Verify(roots[i], indeces[1], last_codeword[indeces[1]], path_sib_word){
+
+        if mk.Verify(roots[i], int(b_idx[i]), b_leaf, b_path)  {
             return false
         }
-        path_word := fs_proof.Pop().([]field.FieldElement)
-        Merkle := merkle.NewMerkle(path_word)
-        if !Merkle.Verify(roots[i], indeces[0], last_codeword[indeces[0]], path_word){
+
+        if mk.Verify(roots[i+1], int(a_idx[i]), c_leaf, c_path)  {
             return false
         }
-        omega = omega.Exp(field.FieldElement{big.NewInt(2), r.Field}).Multiply(offset)      
-        offset = offset.Exp(field.FieldElement{big.NewInt(2), r.Field})
 
 
 
     }
 
 
-	return true
+
+
+    
+    return true
 }

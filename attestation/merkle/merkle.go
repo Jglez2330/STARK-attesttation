@@ -26,6 +26,7 @@ func (m *Merkle) Commit(leaves []field.FieldElement) []byte {
 	hash := sha256.New()
 	// The field elements must be converted to hashes to build the merkele tree
 	leaves_hashes := make([][]byte, len(leaves))
+    m._leaves = leaves
 	for i, leaf := range leaves {
 		element_bytes := leaf.Value.Bytes()
 		hash.Write(element_bytes)

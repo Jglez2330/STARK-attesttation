@@ -1,6 +1,9 @@
 package field
 
-import "math/big"
+import (
+	"math"
+	"math/big"
+)
 
 type Field_252 struct {
 	_generator FieldElement
@@ -94,3 +97,13 @@ func (f Field_252) Pow(a FieldElement, b int) FieldElement {
 	}
 	return result
 }
+
+func (f Field_252) Sample(b []byte) FieldElement {
+    acc := 0
+    for i := 0; i < len(b); i++ {
+        acc = int(math.Pow(float64(acc<<8), float64(int(b[i]))))
+    }
+    return FieldElement{big.NewInt(int64(acc)), f}
+}
+
+

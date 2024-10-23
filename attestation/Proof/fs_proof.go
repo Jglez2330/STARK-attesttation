@@ -5,58 +5,56 @@ import (
 	"encoding/json"
 )
 
-type Fiat_Shamir_Proof struct{
-    objects []any
-    index int
+type Fiat_Shamir_Proof struct {
+	Objects []any `json:"objects"`
+	Index   int   `json:"index"`
 }
 
-func NewFiat_Shamir_Proof(objects []any) Fiat_Shamir_Proof{
-    return Fiat_Shamir_Proof{objects, 0}
+func NewFiat_Shamir_Proof(objects []any) Fiat_Shamir_Proof {
+	return Fiat_Shamir_Proof{objects, 0}
 }
 
-func (f Fiat_Shamir_Proof) Push(object any){
-    f.objects = append(f.objects, object)
+func (f *Fiat_Shamir_Proof) Push(object any) {
+	f.Objects = append(f.Objects, object)
 }
 
-func (f Fiat_Shamir_Proof) Pop() any{
-    if f.index < len(f.objects){
-        f.index++
-        return f.objects[f.index-1]
-    }
-    return nil
+func (f *Fiat_Shamir_Proof) Pop() any {
+	if f.Index < len(f.Objects) {
+		f.Index++
+		return f.Objects[f.Index-1]
+	}
+	return nil
 }
 
-func (f Fiat_Shamir_Proof) serialize_json() []byte{
-    json, err := json.Marshal(f)
-    if err != nil{
-        return nil
-    }
-    return json
+func (f *Fiat_Shamir_Proof) Serialize() []byte {
+	data, err := json.Marshal(f)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
 
-
-func (f Fiat_Shamir_Proof) deserialize_json(json_s string) Fiat_Shamir_Proof{
-    var obj Fiat_Shamir_Proof
-    err := json.Unmarshal([]byte(json_s), &obj)
-    if err != nil{
-        return Fiat_Shamir_Proof{}
-    }
-    return obj
+func Deserialize(data []byte) Fiat_Shamir_Proof {
+	var res Fiat_Shamir_Proof
+	err := json.Unmarshal(data, &res)
+	if err != nil {
+		panic(err)
+	}
+	return res
 }
 
-func (f Fiat_Shamir_Proof)  Prover_fiat_shamir(num_bytes int) []byte{
-    sha256_hash := sha256.Sum256(f.serialize_json())
-    return sha256_hash[:num_bytes]
+func (f *Fiat_Shamir_Proof) Prover_FS() []byte {
+	h := sha256.New()
+	h.Write(f.Serialize())
+	return h.Sum(nil)
 }
 
-func (f Fiat_Shamir_Proof)  Verifier_fiat_shamir(num_bytes int) []byte{
-    json_dump, err := json.Marshal(f.objects[:f.index])
-    if err != nil{
-        return nil
-    }
-    sha256_hash := sha256.Sum256(json_dump)
-    return sha256_hash[:num_bytes]
-
-
+func (f *Fiat_Shamir_Proof) Verifier_FS() []byte {
+	data, err := json.Marshal(f.Objects[:f.Index])
+	if err != nil {
+		panic(err)
+	}
+	h := sha256.New()
+	h.Write(data)
+	return h.Sum(nil)
 }
-

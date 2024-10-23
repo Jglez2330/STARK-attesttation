@@ -14,6 +14,7 @@ type Field interface {
 	Divide(a, b FieldElement) FieldElement
 	Generator() FieldElement
 	Generator_subgroup_order(order int) FieldElement
+    Sample([]byte) FieldElement
 }
 
 type FieldElement struct {

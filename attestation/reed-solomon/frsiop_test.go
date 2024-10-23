@@ -31,7 +31,7 @@ func TestFRI (t *testing.T) {
 
     codeword := poly.Evaluate_Domain(H)
 
-    put
+    
 
     
 
